@@ -43,6 +43,10 @@ class TrayManagerPlugin : public flutter::Plugin {
   virtual ~TrayManagerPlugin();
 
  private:
+  //  Solve the problem of pop-up menu not hiding when clicking somewhere else.
+  HWND m_hTrayWnd = nullptr;
+  static LRESULT CALLBACK TrayWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam);
+
   std::wstring_convert<std::codecvt_utf8_utf16<wchar_t>> g_converter;
 
   flutter::PluginRegistrarWindows* registrar;
@@ -117,15 +121,46 @@ void TrayManagerPlugin::RegisterWithRegistrar(
 
 TrayManagerPlugin::TrayManagerPlugin(flutter::PluginRegistrarWindows* registrar)
     : registrar(registrar) {
-  window_proc_id = registrar->RegisterTopLevelWindowProcDelegate(
-      [this](HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) {
-        return HandleWindowProc(hwnd, message, wparam, lparam);
-      });
+  WNDCLASSEX wx = {};
+  wx.cbSize = sizeof(WNDCLASSEX);
+  wx.lpfnWndProc = TrayWndProc;
+  wx.hInstance = GetModuleHandle(nullptr);
+  wx.lpszClassName = L"FlutterTrayMgrMsgWnd";
+
+  RegisterClassEx(&wx);
+  m_hTrayWnd = CreateWindowEx(0, L"FlutterTrayMgrMsgWnd", L"", 
+                              0, 0, 0, 0, 0, 
+                              HWND_MESSAGE,
+                              nullptr, GetModuleHandle(nullptr), nullptr);
+  SetWindowLongPtr(m_hTrayWnd, GWLP_USERDATA, (LONG_PTR)this);
+
+  // window_proc_id = registrar->RegisterTopLevelWindowProcDelegate(
+  //     [this](HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) {
+  //       return HandleWindowProc(hwnd, message, wparam, lparam);
+  //     });
   windows_taskbar_created_message_id = RegisterWindowMessage(L"TaskbarCreated");
 }
 
 TrayManagerPlugin::~TrayManagerPlugin() {
-  registrar->UnregisterTopLevelWindowProcDelegate(window_proc_id);
+  if (m_hTrayWnd) {
+      DestroyWindow(m_hTrayWnd);
+      UnregisterClass(L"FlutterTrayMgrMsgWnd", GetModuleHandle(nullptr));
+  }
+  // registrar->UnregisterTopLevelWindowProcDelegate(window_proc_id);
+}
+
+LRESULT TrayManagerPlugin::TrayWndProc(HWND hWnd,
+                                       UINT message,
+                                       WPARAM wParam,
+                                       LPARAM lParam) {
+  TrayManagerPlugin* plugin = reinterpret_cast<TrayManagerPlugin*>(GetWindowLongPtr(hWnd, GWLP_USERDATA));
+  if (plugin) {
+        auto result = plugin->HandleWindowProc(hWnd, message, wParam, lParam);
+        if (result.has_value()) {
+            return result.value();
+        }
+    }
+    return DefWindowProc(hWnd, message, wParam, lParam);
 }
 
 void TrayManagerPlugin::_CreateMenu(HMENU menu, flutter::EncodableMap args) {
@@ -282,7 +317,9 @@ void TrayManagerPlugin::_ApplyIcon() {
     
     ZeroMemory(&nid, sizeof(NOTIFYICONDATA));
     nid.cbSize = sizeof(NOTIFYICONDATA);
-    nid.hWnd = GetMainWindow();
+    // nid.hWnd = GetMainWindow();
+    nid.hWnd = m_hTrayWnd;
+
     nid.uID = 1;
     nid.hIcon = hIconBackup;
     StringCchCopy(nid.szTip, _countof(nid.szTip), szTipBackup);
@@ -341,7 +378,8 @@ void TrayManagerPlugin::PopUpContextMenu(
   bool bringAppToFront =
       std::get<bool>(args.at(flutter::EncodableValue("bringAppToFront")));
 
-  HWND hWnd = GetMainWindow();
+  // HWND hWnd = GetMainWindow();
+  HWND hWnd = m_hTrayWnd;
 
   double x, y;
 
@@ -359,8 +397,14 @@ void TrayManagerPlugin::PopUpContextMenu(
   if (bringAppToFront) {
     SetForegroundWindow(hWnd);
   }
+  
+  SetForegroundWindow(hWnd);
+  
   TrackPopupMenu(hMenu, TPM_BOTTOMALIGN | TPM_LEFTALIGN, static_cast<int>(x),
                  static_cast<int>(y), 0, hWnd, NULL);
+  
+                 PostMessage(hWnd, WM_NULL, 0, 0);
+
   result->Success(flutter::EncodableValue(true));
 }
 
