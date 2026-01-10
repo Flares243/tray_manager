@@ -379,6 +379,7 @@ void TrayManagerPlugin::PopUpContextMenu(
       std::get<bool>(args.at(flutter::EncodableValue("bringAppToFront")));
 
   // HWND hWnd = GetMainWindow();
+  HWND hMainWnd = GetMainWindow();
   HWND hWnd = m_hTrayWnd;
 
   double x, y;
@@ -395,7 +396,7 @@ void TrayManagerPlugin::PopUpContextMenu(
   y = cursorPos.y;
 
   if (bringAppToFront) {
-    SetForegroundWindow(hWnd);
+    SetForegroundWindow(hMainWnd);
   }
   
   SetForegroundWindow(hWnd);
