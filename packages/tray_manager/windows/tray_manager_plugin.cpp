@@ -127,7 +127,9 @@ TrayManagerPlugin::TrayManagerPlugin(flutter::PluginRegistrarWindows* registrar)
   wx.hInstance = GetModuleHandle(nullptr);
   wx.lpszClassName = L"FlutterTrayMgrMsgWnd";
 
-  RegisterClassEx(&wx);
+  if (!RegisterClassEx(&wx) && GetLastError() != ERROR_CLASS_ALREADY_EXISTS) {
+    return;
+  }
   m_hTrayWnd = CreateWindowEx(0, L"FlutterTrayMgrMsgWnd", L"", 
                               0, 0, 0, 0, 0, 
                               HWND_MESSAGE,
